@@ -17,52 +17,62 @@ const tools: { functionDeclarations: FunctionDeclaration[] }[] = [
     functionDeclarations: [
       {
         name: 'createInvoice',
-        description: 'Creates a new invoice. The issue date is always today.',
+        description: 'Cria uma nova nota fiscal. A data de emissão é sempre hoje.',
         parameters: {
           type: Type.OBJECT,
           properties: {
-            clientName: { type: Type.STRING, description: 'The name of the client.' },
-            amount: { type: Type.NUMBER, description: 'The total amount of the invoice.' },
-            dueDate: { type: Type.STRING, description: 'The due date for the invoice in YYYY-MM-DD format.' },
-            observations: { type: Type.STRING, description: 'Optional notes or observations for the invoice.' },
+            clientName: { type: Type.STRING, description: 'O nome do cliente.' },
+            amount: { type: Type.NUMBER, description: 'O valor total da nota fiscal.' },
+            dueDate: { type: Type.STRING, description: 'A data de vencimento da nota no formato AAAA-MM-DD.' },
+            observations: { type: Type.STRING, description: 'Notas ou observações opcionais para a nota fiscal.' },
           },
           required: ['clientName', 'amount', 'dueDate'],
         },
       },
       {
         name: 'getInvoiceDetails',
-        description: "Retrieves the full details of a specific invoice using its ID.",
+        description: "Recupera os detalhes completos de uma nota fiscal específica usando seu ID.",
         parameters: {
           type: Type.OBJECT,
           properties: {
-            id: { type: Type.STRING, description: 'The ID of the invoice to retrieve, for example "d290f1ee-6c54-4b01-90e6-d701748f0851".' },
+            id: { type: Type.STRING, description: 'O ID da nota fiscal a ser recuperada, por exemplo "d290f1ee-6c54-4b01-90e6-d701748f0851".' },
           },
           required: ['id'],
         },
       },
       {
         name: 'updateInvoice',
-        description: 'Updates one or more fields of an existing invoice, identified by its ID.',
+        description: 'Atualiza um ou mais campos de uma nota fiscal existente, identificada por seu ID.',
         parameters: {
           type: Type.OBJECT,
           properties: {
-            id: { type: Type.STRING, description: 'The ID of the invoice to update.' },
-            clientName: { type: Type.STRING, description: 'The new name of the client.' },
-            amount: { type: Type.NUMBER, description: 'The new total amount of the invoice.' },
-            dueDate: { type: Type.STRING, description: 'The new due date in YYYY-MM-DD format.' },
-            status: { type: Type.STRING, description: 'The new status of the invoice.', enum: Object.values(InvoiceStatus) },
-            observations: { type: Type.STRING, description: 'The new notes or observations for the invoice.' },
+            id: { type: Type.STRING, description: 'O ID da nota fiscal a ser atualizada.' },
+            clientName: { type: Type.STRING, description: 'O novo nome do cliente.' },
+            amount: { type: Type.NUMBER, description: 'O novo valor total da nota.' },
+            dueDate: { type: Type.STRING, description: 'A nova data de vencimento no formato AAAA-MM-DD.' },
+            status: { type: Type.STRING, description: 'O novo status da nota.', enum: Object.values(InvoiceStatus) },
+            observations: { type: Type.STRING, description: 'As novas notas ou observações para a nota.' },
           },
           required: ['id'],
         },
       },
       {
-        name: 'deleteInvoice',
-        description: 'Deletes an invoice permanently from the system using its ID.',
+        name: 'listInvoices',
+        description: 'Lista as notas fiscais, com a opção de filtrar por status (Pago, Pendente, Vencido).',
         parameters: {
           type: Type.OBJECT,
           properties: {
-            id: { type: Type.STRING, description: 'The ID of the invoice to delete.' },
+            status: { type: Type.STRING, description: 'O status para filtrar as notas.', enum: Object.values(InvoiceStatus) },
+          },
+        },
+      },
+      {
+        name: 'deleteInvoice',
+        description: 'Exclui permanentemente uma nota fiscal do sistema usando seu ID. Requer confirmação prévia do usuário.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING, description: 'O ID da nota fiscal a ser excluída.' },
           },
           required: ['id'],
         },
@@ -98,7 +108,9 @@ const Chatbot: React.FC<ChatbotProps> = ({ invoices, messages, setMessages, addI
                 }
             }
              setError(null);
-             setMessages([{ role: 'model', text: t('chatbot.welcomeMessage') }]);
+             if (messages.length === 0) {
+                setMessages([{ role: 'model', text: t('chatbot.welcomeMessage') }]);
+             }
         } catch (e) {
             console.error("Failed to check API config:", e);
             const errorMessage = t('chatbot.errorMessage');
@@ -109,6 +121,7 @@ const Chatbot: React.FC<ChatbotProps> = ({ invoices, messages, setMessages, addI
         }
     };
     
+    // Only run check if messages are empty to avoid re-running on new chat.
     if (messages.length === 0) {
         checkApiConfig();
     }
@@ -138,54 +151,36 @@ const Chatbot: React.FC<ChatbotProps> = ({ invoices, messages, setMessages, addI
       }
       case 'getInvoiceDetails': {
         const invoice = invoices.find(inv => inv.id.toLowerCase() === args.id.toLowerCase());
-        return invoice ? { ...invoice } : { error: `Invoice with ID ${args.id} not found.` };
+        return invoice ? { ...invoice } : { error: `Nota fiscal com ID ${args.id} não encontrada.` };
       }
       case 'updateInvoice': {
         const originalInvoice = invoices.find(inv => inv.id.toLowerCase() === args.id.toLowerCase());
-        if (!originalInvoice) return { error: `Invoice with ID ${args.id} not found.` };
+        if (!originalInvoice) return { error: `Nota fiscal com ID ${args.id} não encontrada.` };
         const updatedInvoice = { ...originalInvoice, ...args };
         await updateInvoice(updatedInvoice);
         return { success: true, id: args.id };
       }
       case 'deleteInvoice': {
         const invoiceExists = invoices.some(inv => inv.id.toLowerCase() === args.id.toLowerCase());
-        if (!invoiceExists) return { error: `Invoice with ID ${args.id} not found.` };
+        if (!invoiceExists) return { error: `Nota fiscal com ID ${args.id} não encontrada.` };
         await deleteInvoice(args.id);
         return { success: true, id: args.id };
       }
+      case 'listInvoices': {
+        let results = invoices;
+        if (args.status) {
+          results = invoices.filter(inv => inv.status === args.status);
+        }
+        if (results.length > 0) {
+            // Return a summary to avoid overwhelming the context window
+            return results.map(inv => ({ id: inv.id, clientName: inv.clientName, amount: inv.amount, status: inv.status, dueDate: inv.dueDate }));
+        }
+        return { message: `Nenhuma nota fiscal encontrada com o status '${args.status || 'qualquer'}'.` };
+      }
       default:
-        return { error: `Unknown function: ${name}` };
+        return { error: `Função desconhecida: ${name}` };
     }
   };
-
-  const callProxy = async (contents: Content[]) => {
-    const today = new Date().toISOString().split('T')[0];
-    const systemInstruction = `You are a highly capable assistant for an invoice management app called NotaFácil.
-Your primary purpose is to help users manage their invoices. You can create, update, delete, or provide details about invoices.
-You can also chat about any other topic, but if the conversation strays too far from invoices, gently guide the user back to the app's purpose.
-Use the provided tools to perform invoice actions when requested by the user.
-For destructive actions like deleting an invoice, you MUST ask for user confirmation before calling the 'deleteInvoice' function.
-The current date is ${today}.
-Always respond in the user's language, be it Portuguese, English, or any other.
-When creating an invoice, the issue date is always today; you only need to ask for the due date.`;
-
-    const apiResponse = await fetch('/api/gemini-proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: 'gemini-2.5-flash',
-            contents: contents,
-            config: { systemInstruction },
-            tools: tools
-        })
-    });
-    if (!apiResponse.ok) {
-        const errorData = await apiResponse.json();
-        throw new Error(errorData.error || `API Error: ${apiResponse.statusText}`);
-    }
-    return apiResponse.json();
-  };
-
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,27 +193,61 @@ When creating an invoice, the issue date is always today; you only need to ask f
     setIsLoading(true);
     setError(null);
     
-    // Convert message history to Gemini's format
+    // Convert message history to Gemini's format, removing initial system message
+    const historyStartIndex = messages.length > 0 && messages[0].text === t('chatbot.welcomeMessage') ? 1 : 0;
     let geminiHistory: Content[] = currentMessages
-        .slice(1) // Remove initial welcome message
+        .slice(historyStartIndex)
         .map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
         }));
 
     try {
+        const today = new Date().toISOString().split('T')[0];
+        const invoiceListForContext = invoices.length > 0 
+            ? invoices.map(inv => `- ID: ${inv.id}, Cliente: ${inv.clientName}, Valor: R$ ${inv.amount.toFixed(2)}, Status: ${t(`common.status.${inv.status}`)}`).join('\n')
+            : 'Nenhuma nota fiscal cadastrada no momento.';
+
+        const systemInstruction = `Você é um assistente de IA para um aplicativo de gerenciamento de notas fiscais chamado NotaFácil.
+Seu objetivo é ajudar os usuários a gerenciar suas notas: criar, visualizar detalhes, atualizar, listar e excluir.
+A data de hoje é ${today}.
+
+**Contexto Atual das Notas Fiscais:**
+${invoiceListForContext}
+
+**Instruções de Operação:**
+- Para visualizar, atualizar ou excluir uma nota, use o ID correspondente da lista acima. Se o usuário não fornecer um ID, use o nome do cliente ou outros detalhes para encontrá-lo na lista.
+- Para ações destrutivas (excluir), SEMPRE peça confirmação ao usuário antes de chamar a função 'deleteInvoice'. Exemplo: "Você tem certeza que deseja excluir a nota X?". Se o usuário confirmar, chame a função.
+- A data de emissão de novas notas é sempre hoje (${today}).
+- Responda sempre em português.`;
+
+        const callProxy = async (contents: Content[]) => {
+            const apiResponse = await fetch('/api/gemini-proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: 'gemini-2.5-flash',
+                    contents: contents,
+                    config: { systemInstruction },
+                    tools: tools
+                })
+            });
+            if (!apiResponse.ok) {
+                const errorData = await apiResponse.json();
+                throw new Error(errorData.error || `API Error: ${apiResponse.statusText}`);
+            }
+            return apiResponse.json();
+        };
+
         let geminiResponse = await callProxy(geminiHistory);
         let finalMessages = [...currentMessages];
 
-        // If the model returns function calls, resolve them.
         if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
-            // Add the model's function call turn to the history
              geminiHistory.push({
                 role: 'model',
                 parts: geminiResponse.parts
              });
             
-            // Execute all function calls
             const functionResponses: Part[] = [];
             for (const fc of geminiResponse.functionCalls) {
                 const result = await executeFunctionCall(fc.name, fc.args);
@@ -230,9 +259,8 @@ When creating an invoice, the issue date is always today; you only need to ask f
                 });
             }
 
-            // Add function results to history and call the API again
             geminiHistory.push({
-                role: 'user', // "user" role for function responses
+                role: 'user', 
                 parts: functionResponses
             });
 
@@ -297,7 +325,7 @@ When creating an invoice, the issue date is always today; you only need to ask f
           />
           <button type="submit" disabled={isLoading || !input.trim() || !!error} className="bg-indigo-600 text-white rounded-full p-2.5 hover:bg-indigo-700 disabled:bg-indigo-300 dark:disabled:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.428A1 1 0 009 16.51l.906.259 1.956 5.585a1 1 0 001.788 0l7-14a1 1 0 00-1.169-1.409l-5 1.428A1 1 0 0011 3.49l-.906-.259L8.138 7.646a1 1 0 00-.545-.545L1.956 5.145a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.428A1 1 0 003 16.51l.906.259 1.956 5.585a1 1 0 001.788 0l7-14a1 1 0 00-1.169-1.409l-5 1.428A1 1 0 0011 3.49l-.906-.259L8.138 7.646a1 1 0 00-.545-.545L1.956 5.145z" transform="rotate(45 10 10)" />
+               <path transform="translate(2, -2) rotate(45, 10, 10)" d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.428A1 1 0 009 16.51l.906.259 1.956 5.585a1 1 0 001.788 0l7-14a1 1 0 00-1.169-1.409l-5 1.428A1 1 0 0011 3.49l-.906-.259L8.138 7.646a1 1 0 00-.545-.545L1.956 5.145a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.428A1 1 0 003 16.51l.906.259 1.956 5.585a1 1 0 001.788 0l7-14a1 1 0 00-1.169-1.409l-5 1.428A1 1 0 0011 3.49l-.906-.259L8.138 7.646a1 1 0 00-.545-.545L1.956 5.145z"/>
             </svg>
           </button>
         </form>
