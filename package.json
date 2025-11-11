@@ -1,0 +1,24 @@
+{
+  "name": "copy-of--notafácil-2.0-testando-vercel-chave-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react-dom": "18.3.1",
+    "@google/genai": "^1.20.0",
+    "react": "18.3.1",
+    "recharts": "2.12.7",
+    "@supabase/supabase-js": "2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
