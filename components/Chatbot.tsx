@@ -193,10 +193,9 @@ const Chatbot: React.FC<ChatbotProps> = ({ invoices, messages, setMessages, addI
     setIsLoading(true);
     setError(null);
     
-    // Convert message history to Gemini's format, removing initial system message
-    const historyStartIndex = messages.length > 0 && messages[0].text === t('chatbot.welcomeMessage') ? 1 : 0;
+    // Convert message history to Gemini's format
     let geminiHistory: Content[] = currentMessages
-        .slice(historyStartIndex)
+        .filter(msg => msg.text !== t('chatbot.welcomeMessage') && msg.text !== t('chatbot.apiKeyMissing')) // Filter out initial messages
         .map(msg => ({
             role: msg.role,
             parts: [{ text: msg.text }]
@@ -218,6 +217,7 @@ ${invoiceListForContext}
 **Instruções de Operação:**
 - Para visualizar, atualizar ou excluir uma nota, use o ID correspondente da lista acima. Se o usuário não fornecer um ID, use o nome do cliente ou outros detalhes para encontrá-lo na lista.
 - Para ações destrutivas (excluir), SEMPRE peça confirmação ao usuário antes de chamar a função 'deleteInvoice'. Exemplo: "Você tem certeza que deseja excluir a nota X?". Se o usuário confirmar, chame a função.
+- Após executar uma função com sucesso, confirme a ação para o usuário de forma clara (ex: "Nota fiscal para [Cliente] criada com sucesso."). Se uma função retornar um erro, informe o usuário sobre o erro de forma clara.
 - A data de emissão de novas notas é sempre hoje (${today}).
 - Responda sempre em português.`;
 
@@ -240,7 +240,6 @@ ${invoiceListForContext}
         };
 
         let geminiResponse = await callProxy(geminiHistory);
-        let finalMessages = [...currentMessages];
 
         if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
              geminiHistory.push({
@@ -250,13 +249,24 @@ ${invoiceListForContext}
             
             const functionResponses: Part[] = [];
             for (const fc of geminiResponse.functionCalls) {
-                const result = await executeFunctionCall(fc.name, fc.args);
-                functionResponses.push({
-                    functionResponse: {
-                        name: fc.name,
-                        response: { result }
-                    }
-                });
+                try {
+                    const result = await executeFunctionCall(fc.name, fc.args);
+                    functionResponses.push({
+                        functionResponse: {
+                            name: fc.name,
+                            response: { result }
+                        }
+                    });
+                } catch (err) {
+                     console.error(`Error executing function ${fc.name}:`, err);
+                     const errorMessage = err instanceof Error ? err.message : `Falha ao executar a função ${fc.name}.`;
+                     functionResponses.push({
+                         functionResponse: {
+                             name: fc.name,
+                             response: { error: errorMessage }
+                         }
+                     });
+                }
             }
 
             geminiHistory.push({
@@ -268,13 +278,12 @@ ${invoiceListForContext}
         }
         
         if (geminiResponse.text) {
-             finalMessages.push({ role: 'model', text: geminiResponse.text });
+            setMessages(prev => [...prev, { role: 'model', text: geminiResponse.text }]);
         }
-        setMessages(finalMessages);
 
     } catch (err) {
         console.error("Chatbot error:", err);
-        const errorMessage = t('chatbot.errorMessage');
+        const errorMessage = err instanceof Error ? err.message : t('chatbot.errorMessage');
         setError(errorMessage);
         setMessages(prev => [...prev, { role: 'model', text: errorMessage }]);
     } finally {

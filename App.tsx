@@ -99,7 +99,7 @@ const App: React.FC = () => {
         console.error("Failed to create invoice:", error);
         // Rollback
         setInvoices(originalInvoices);
-        alert('Failed to create invoice. Please try again.');
+        throw new Error('Falha ao criar a nota fiscal. Por favor, tente novamente.');
     }
   };
   
@@ -114,7 +114,7 @@ const App: React.FC = () => {
         console.error("Failed to update invoice:", error);
         // Rollback
         setInvoices(originalInvoices);
-        alert('Failed to update invoice. Please try again.');
+        throw new Error('Falha ao atualizar a nota fiscal. Por favor, tente novamente.');
     }
   };
 
@@ -128,7 +128,7 @@ const App: React.FC = () => {
     } catch (error) {
         console.error("Failed to delete invoice:", error);
         setInvoices(originalInvoices);
-        alert('Failed to delete invoice. Please try again.');
+        throw new Error('Falha ao excluir a nota fiscal. Por favor, tente novamente.');
     }
   };
 
