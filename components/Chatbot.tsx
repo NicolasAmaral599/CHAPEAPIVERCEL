@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Chat, FunctionDeclaration, Type, Part } from "@google/genai";
+import { FunctionDeclaration, Type, Part, Content } from "@google/genai";
 import { useTranslations } from '../context/LanguageContext';
 import { Invoice, InvoiceStatus, Message } from '../types';
-import { ai } from '../lib/geminiClient';
 
 interface ChatbotProps {
   invoices: Invoice[];
@@ -78,37 +77,40 @@ const Chatbot: React.FC<ChatbotProps> = ({ invoices, messages, setMessages, addI
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const chatRef = useRef<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const isNewChat = messages.length === 0;
-    if (isNewChat) {
-      setError(null);
-      if (!ai) {
-        console.warn("API_KEY not found. Chatbot will be disabled.");
-        const apiKeyError = t('chatbot.apiKeyMissing');
-        setError(apiKeyError);
-        setMessages([{ role: 'model', text: apiKeyError }]);
-        return;
-      }
-      
-      const today = new Date().toISOString().split('T')[0];
-      chatRef.current = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        config: {
-          systemInstruction: `You are a highly capable assistant for an invoice management app called NotaFácil.
-Your primary purpose is to help users manage their invoices. You can create, update, delete, or provide details about invoices.
-You can also chat about any other topic, but if the conversation strays too far from invoices, gently guide the user back to the app's purpose.
-Use the provided tools to perform invoice actions when requested by the user.
-For destructive actions like deleting an invoice, you MUST ask for user confirmation before calling the 'deleteInvoice' function.
-The current date is ${today}.
-Always respond in the user's language, be it Portuguese, English, or any other.
-When creating an invoice, the issue date is always today; you only need to ask for the due date.`,
-          tools: tools
-        },
-      });
-      setMessages([{ role: 'model', text: t('chatbot.welcomeMessage') }]);
+    // Check if the API key is configured on the server via the proxy
+    const checkApiConfig = async () => {
+        setIsLoading(true);
+        try {
+            const res = await fetch('/api/gemini-proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ping: true }) // Send a dummy request
+            });
+            if (res.status === 500) {
+                 const data = await res.json();
+                 if (data.error?.includes('API key not configured')) {
+                    setError(t('chatbot.apiKeyMissing'));
+                    setMessages([{ role: 'model', text: t('chatbot.apiKeyMissing') }]);
+                    return;
+                }
+            }
+             setError(null);
+             setMessages([{ role: 'model', text: t('chatbot.welcomeMessage') }]);
+        } catch (e) {
+            console.error("Failed to check API config:", e);
+            const errorMessage = t('chatbot.errorMessage');
+            setError(errorMessage);
+            setMessages([{ role: 'model', text: errorMessage }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    if (messages.length === 0) {
+        checkApiConfig();
     }
   }, [messages.length, setMessages, t]);
 
@@ -156,43 +158,91 @@ When creating an invoice, the issue date is always today; you only need to ask f
     }
   };
 
+  const callProxy = async (contents: Content[]) => {
+    const today = new Date().toISOString().split('T')[0];
+    const systemInstruction = `You are a highly capable assistant for an invoice management app called NotaFácil.
+Your primary purpose is to help users manage their invoices. You can create, update, delete, or provide details about invoices.
+You can also chat about any other topic, but if the conversation strays too far from invoices, gently guide the user back to the app's purpose.
+Use the provided tools to perform invoice actions when requested by the user.
+For destructive actions like deleting an invoice, you MUST ask for user confirmation before calling the 'deleteInvoice' function.
+The current date is ${today}.
+Always respond in the user's language, be it Portuguese, English, or any other.
+When creating an invoice, the issue date is always today; you only need to ask for the due date.`;
+
+    const apiResponse = await fetch('/api/gemini-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: 'gemini-2.5-flash',
+            contents: contents,
+            config: { systemInstruction },
+            tools: tools
+        })
+    });
+    if (!apiResponse.ok) {
+        const errorData = await apiResponse.json();
+        throw new Error(errorData.error || `API Error: ${apiResponse.statusText}`);
+    }
+    return apiResponse.json();
+  };
+
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading || !chatRef.current) return;
+    if (!input.trim() || isLoading || error) return;
 
     const userMessage: Message = { role: 'user', text: input };
-    setMessages(prev => [...prev, userMessage]);
-    const textToSend = input;
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
     setInput('');
     setIsLoading(true);
     setError(null);
     
+    // Convert message history to Gemini's format
+    let geminiHistory: Content[] = currentMessages
+        .slice(1) // Remove initial welcome message
+        .map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.text }]
+        }));
+
     try {
-        // Use sendMessage to get the full response, which may include function calls.
-        let response = await chatRef.current.sendMessage({ message: textToSend });
+        let geminiResponse = await callProxy(geminiHistory);
+        let finalMessages = [...currentMessages];
 
-        // If the model returns function calls, enter a loop to resolve them.
-        while (response.functionCalls && response.functionCalls.length > 0) {
-            // This example handles one function call per turn for simplicity, mirroring the original logic.
-            const fc = response.functionCalls[0];
-            const result = await executeFunctionCall(fc.name, fc.args);
+        // If the model returns function calls, resolve them.
+        if (geminiResponse.functionCalls && geminiResponse.functionCalls.length > 0) {
+            // Add the model's function call turn to the history
+             geminiHistory.push({
+                role: 'model',
+                parts: geminiResponse.parts
+             });
             
-            const functionResponsePart: Part = {
-                functionResponse: {
-                    name: fc.name,
-                    response: { result }
-                }
-            };
+            // Execute all function calls
+            const functionResponses: Part[] = [];
+            for (const fc of geminiResponse.functionCalls) {
+                const result = await executeFunctionCall(fc.name, fc.args);
+                functionResponses.push({
+                    functionResponse: {
+                        name: fc.name,
+                        response: { result }
+                    }
+                });
+            }
 
-            // Send the function result back to the model.
-            // The `message` property should contain an array of Parts.
-            response = await chatRef.current.sendMessage({ message: [functionResponsePart] });
+            // Add function results to history and call the API again
+            geminiHistory.push({
+                role: 'user', // "user" role for function responses
+                parts: functionResponses
+            });
+
+            geminiResponse = await callProxy(geminiHistory);
         }
         
-        // After any function calls are resolved, the final text response is in `response.text`.
-        if (response.text) {
-             setMessages(prev => [...prev, { role: 'model', text: response.text }]);
+        if (geminiResponse.text) {
+             finalMessages.push({ role: 'model', text: geminiResponse.text });
         }
+        setMessages(finalMessages);
 
     } catch (err) {
         console.error("Chatbot error:", err);
@@ -219,7 +269,7 @@ When creating an invoice, the issue date is always today; you only need to ask f
             </div>
           </div>
         ))}
-        {isLoading && (
+        {isLoading && messages.length > 0 && messages[messages.length-1].role === 'user' && (
             <div className="flex justify-start">
                  <div className="px-4 py-2 rounded-2xl bg-white dark:bg-slate-700">
                     <div className="flex items-center space-x-1">
@@ -233,7 +283,7 @@ When creating an invoice, the issue date is always today; you only need to ask f
         <div ref={messagesEndRef} />
       </div>
 
-      {error && !error.includes('API key') && <p className="px-4 text-sm text-red-500">{error}</p>}
+      {error && !error.includes('API') && <p className="px-4 text-sm text-red-500">{error}</p>}
       
       <div className="p-4 border-t border-slate-200 dark:border-slate-700">
         <form onSubmit={handleSend} className="flex items-center space-x-2">
