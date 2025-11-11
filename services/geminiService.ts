@@ -8,7 +8,7 @@ const prompts = {
 export const generateInvoiceObservation = async (clientName: string, amount: number, service: string, lang: 'pt' | 'en'): Promise<string> => {
     // Check if the AI client was initialized before using it
     if (!ai) {
-        return lang === 'pt' ? "Serviço de IA indisponível. Por favor, configure a chave de API." : "AI Service unavailable. Please configure the API key.";
+        return lang === 'pt' ? "Serviço de IA indisponível. Por favor, configure a variável de ambiente API_KEY." : "AI Service unavailable. Please configure the API_KEY environment variable.";
     }
 
     const prompt = prompts[lang](clientName, amount, service);
