@@ -52,12 +52,13 @@ export async function updateInvoiceSupabase(invoice: Invoice) {
   }
 }
 
-export async function deleteInvoiceSupabase(id: string) {
-  const { error } = await supabase.from('invoices').delete().eq('id', id);
+export async function deleteInvoiceSupabase(id: string): Promise<number | null> {
+  const { count, error } = await supabase.from('invoices').delete().eq('id', id);
   if (error) {
     console.error('Error deleting invoice in Supabase:', error);
     throw error;
   }
+  return count;
 }
 
 export async function getProfile(userId: string): Promise<Profile | null> {

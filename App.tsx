@@ -119,16 +119,21 @@ const App: React.FC = () => {
   };
 
   const deleteInvoice = async (invoiceId: string) => {
-    // Confirmation should be handled by the caller (e.g., chatbot)
     const originalInvoices = [...invoices];
     // Optimistic update
     setInvoices(prev => prev.filter(inv => inv.id !== invoiceId));
     try {
-        await deleteInvoiceSupabase(invoiceId);
+      const deletedCount = await deleteInvoiceSupabase(invoiceId);
+      // If the invoice was not found in the DB, the delete operation is not successful.
+      if (deletedCount === 0 || deletedCount === null) {
+        throw new Error(`Nota fiscal com ID ${invoiceId} não encontrada no banco de dados.`);
+      }
     } catch (error) {
-        console.error("Failed to delete invoice:", error);
-        setInvoices(originalInvoices);
-        throw new Error('Falha ao excluir a nota fiscal. Por favor, tente novamente.');
+      console.error("Failed to delete invoice:", error);
+      // Rollback on any failure
+      setInvoices(originalInvoices);
+      // Re-throw the original error to be handled by the caller (chatbot)
+      throw error;
     }
   };
 

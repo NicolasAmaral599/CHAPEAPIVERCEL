@@ -217,8 +217,8 @@ ${invoiceListForContext}
 **Instruções de Operação:**
 - Para visualizar, atualizar ou excluir uma nota, use o ID correspondente da lista acima. Se o usuário não fornecer um ID, use o nome do cliente ou outros detalhes para encontrá-lo na lista.
 - Para ações destrutivas (excluir), SEMPRE peça confirmação ao usuário antes de chamar a função 'deleteInvoice'. Exemplo: "Você tem certeza que deseja excluir a nota X?". Se o usuário confirmar, chame a função.
+- A data de emissão para NOVAS notas é SEMPRE a data de hoje: ${today}. NUNCA invente ou peça por uma data de emissão. Ao confirmar a criação, mencione que a nota foi criada com a data de hoje.
 - Após executar uma função com sucesso, confirme a ação para o usuário de forma clara (ex: "Nota fiscal para [Cliente] criada com sucesso."). Se uma função retornar um erro, informe o usuário sobre o erro de forma clara.
-- A data de emissão de novas notas é sempre hoje (${today}).
 - Responda sempre em português.`;
 
         const callProxy = async (contents: Content[]) => {
